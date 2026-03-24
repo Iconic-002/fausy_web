@@ -1,0 +1,20 @@
+[
+    {
+        "id": 1,
+        "name": "Soft Locs",
+        "description": "Lightweight and natural looking shoulder-length locs.",
+        "price": 3500,
+        "duration": 180,
+        "category": "Braids",
+        "image_url": "https://res.cloudinary.com/dy7ms3tdi/image/upload/f_auto,q_auto/download_iwusmd"
+    },
+    {
+        "id": 2,
+        "name": "Knotless Braids",
+        "description": "Pain-free, seamless braids with a natural finish.",
+        "price": 4500,
+        "duration": 240,
+        "category": "Braids",
+        "image_url": "https://res.cloudinary.com/dy7ms3tdi/image/upload/f_auto,q_auto/download_iwusmd"
+    }
+]

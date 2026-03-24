@@ -1,0 +1,5 @@
+Flask
+flask-cors
+twilio
+psycopg2-binary
+gunicorn
