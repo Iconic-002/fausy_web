@@ -45,7 +45,7 @@
         if (!password) return;
 
         try {
-            const response = await fetch(`http://127.0.0.1:5000/api/admin/bookings?password=${password}`);
+            const response = await fetchfetch('https://your-app-name.onrender.com/api/admin/bookings?password=' + password);
             if (!response.ok) throw new Error("Unauthorized or Server Error");
             
             const bookings = await response.json();
