@@ -8,23 +8,20 @@ from twilio.rest import Client
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 
-# Load local .env file if it exists
 load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
 
 # --- CONFIGURATION ---
-TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_SID',)
-TWILIO_AUTH_TOKEN = os.environ.get('TWILIO_TOKEN',)
+TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_SID')
+TWILIO_AUTH_TOKEN = os.environ.get('TWILIO_TOKEN')
 TWILIO_WHATSAPP_FROM = 'whatsapp:+14155238886'
 MY_WHATSAPP_NUMBER = 'whatsapp:+254103119007'
 PAYMENT_PHONE = "0726694019"
 
-# Database URL from Render Environment or Hardcoded fallback
-# This looks for the variable 'DATABASE_URL' on Render, 
-# and uses your link as a backup if it's not found.
-DATABASE_URL = os.environ.get('DATABASE_URL', 'postgresql://fausy:CbQI1bHIRim2momf0J6SBkXsk1VHbSL6@dpg-d70sm014tr6s739mrqs0-a/fausy_db')
+# Use the Environment Variable for Database
+DATABASE_URL = os.environ.get('DATABASE_URL')
 
 # Initialize Twilio
 try:
@@ -32,12 +29,8 @@ try:
 except Exception as e:
     print(f"Twilio Client Error: {e}")
 
-# --- DATABASE HELPERS ---
-
 def get_db_connection():
-    # PostgreSQL requires sslmode='require' for Render
-    conn = psycopg2.connect(DATABASE_URL, sslmode='require')
-    return conn
+    return psycopg2.connect(DATABASE_URL, sslmode='require')
 
 def init_db():
     conn = get_db_connection()
@@ -59,18 +52,15 @@ def init_db():
     cur.close()
     conn.close()
 
-# Initialize tables
-init_db()
-
-# --- ROUTES ---
+# Initialize tables on startup
+with app.app_context():
+    init_db()
 
 @app.route('/')
 def home():
     return f"""
     <body style="font-family: sans-serif; text-align: center; padding-top: 50px; background: #fdfaf6; color: #8b5e3c;">
         <h1>🌿 Fausy Stylist API (PostgreSQL) is Live</h1>
-        <p><b>Alerts:</b> +254 103 119007 | <b>Payments:</b> {PAYMENT_PHONE}</p>
-        <hr style="width: 50%; border: 1px solid #d4a373;">
         <p>Backend is connected to Render Database.</p>
     </body>
     """
@@ -79,20 +69,18 @@ def home():
 def get_styles():
     try:
         with open('styles_data.json', 'r') as f:
-            data = json.load(f)
-        return jsonify(data)
-    except FileNotFoundError:
+            styles = json.load(f)
+        return jsonify(styles)
+    except Exception as e:
         return jsonify([])
 
 @app.route('/api/admin/bookings', methods=['GET'])
 def get_all_bookings():
     password = request.args.get('password')
     if password != "fausy2026":
-        return jsonify({"error": "Unauthorized access"}), 401
-
+        return jsonify({"error": "Unauthorized"}), 401
     try:
         conn = get_db_connection()
-        # RealDictCursor makes the data look like a Python Dictionary automatically
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute("SELECT * FROM bookings ORDER BY booking_date DESC, start_time DESC")
         bookings = cursor.fetchall()
@@ -114,7 +102,7 @@ def create_booking():
     mpesa_code = data.get('mpesa_code', '').strip().upper()
     duration = int(data.get('duration', 120))
 
-    style_display = custom_name if style_id == "custom" else f"Style ID: {style_id}"
+    style_display = custom_name if style_id == "custom" else f"Style: {style_id}"
 
     try:
         new_start = datetime.strptime(f"{booking_date} {start_time}", '%Y-%m-%d %H:%M')
@@ -126,53 +114,38 @@ def create_booking():
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        # 1. Overlap Check (PostgreSQL uses %s instead of ?)
+        # Overlap Check
         cursor.execute("SELECT booking_date, start_time, duration FROM bookings WHERE booking_date = %s", (booking_date,))
         existing_bookings = cursor.fetchall()
-        
         for b in existing_bookings:
             b_start = datetime.strptime(f"{b[0]} {b[1]}", '%Y-%m-%d %H:%M')
             b_end = b_start + timedelta(minutes=int(b[2]))
             if new_start < b_end and new_end > b_start:
                 cursor.close()
                 conn.close()
-                return jsonify({
-                    "error": "Time slot occupied",
-                    "message": f"This slot is taken. Please call {PAYMENT_PHONE} to reschedule."
-                }), 409
+                return jsonify({"error": "Time slot occupied"}), 409
 
-        # 2. Duplicate Check
+        # Duplicate M-Pesa Code Check
         cursor.execute("SELECT id FROM bookings WHERE mpesa_code = %s", (mpesa_code,))
         if cursor.fetchone():
             cursor.close()
             conn.close()
             return jsonify({"error": "This M-Pesa code has already been used."}), 400
 
-        # 3. Save to PostgreSQL
         cursor.execute('''
-            INSERT INTO bookings (customer_name, phone, style_name, booking_date, start_time, duration, mpesa_code, status)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, 'Pending')
+            INSERT INTO bookings (customer_name, phone, style_name, booking_date, start_time, duration, mpesa_code)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
         ''', (customer_name, client_phone, style_display, booking_date, start_time, duration, mpesa_code))
         
         conn.commit()
         cursor.close()
         conn.close()
 
-        # 4. Twilio Notification
+        # Twilio Alert
         try:
-            message_body = (
-                f"🔥 *New Booking Alert!*\n\n"
-                f"👤 *Client:* {customer_name}\n"
-                f"📞 *Phone:* {client_phone}\n"
-                f"💇‍♀️ *Style:* {style_display}\n"
-                f"📅 *Date:* {booking_date}\n"
-                f"⏰ *Time:* {start_time}\n"
-                f"💰 *M-Pesa:* {mpesa_code}\n\n"
-                f"Verify payment on {PAYMENT_PHONE}!"
-            )
+            message_body = f"🔥 *New Booking!*\n👤 {customer_name}\n📞 {client_phone}\n💇‍♀️ {style_display}\n📅 {booking_date} at {start_time}\n💰 {mpesa_code}"
             twilio_client.messages.create(body=message_body, from_=TWILIO_WHATSAPP_FROM, to=MY_WHATSAPP_NUMBER)
-        except Exception as te:
-            print(f"Twilio failed: {te}")
+        except: pass
 
         return jsonify({"message": "Booking successful!"}), 201
 
@@ -180,6 +153,5 @@ def create_booking():
         return jsonify({"error": f"Database Error: {str(e)}"}), 500
 
 if __name__ == '__main__':
-    # Use port from environment (Render requirement)
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)

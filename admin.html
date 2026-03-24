@@ -45,8 +45,7 @@
         if (!password) return;
 
         try {
-            const response = await fetchfetch('https://your-app-name.onrender.com/api/admin/bookings?password=' + password);
-            if (!response.ok) throw new Error("Unauthorized or Server Error");
+           const response = await fetch('https://fausy-web.onrender.com/api/admin/bookings?password=' + password);
             
             const bookings = await response.json();
             const tableBody = document.getElementById('bookingData');
